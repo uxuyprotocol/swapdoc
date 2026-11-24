@@ -1,6 +1,5 @@
 # Solana 离线询价 / 兑换指令接口对接文档
 
-> 适用版本：`feature/solInstr` 分支（含 feePayer / memo / platformFee 支持，commit `5732773` 及以后）；`uxuy-router` 分支起默认全量经 uxuy-router 合约执行（无需参数）
 >
 | 接口 | 方法名 | 用途 |
 |---|---|---|
