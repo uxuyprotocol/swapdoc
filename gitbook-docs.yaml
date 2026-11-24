@@ -1,5 +1,4 @@
 $schema: https://api.gitbook.com/gitbook-docs.yaml
-version: 1
 site:
   title: Swap API Docs
   structure:
@@ -9,5 +8,5 @@ site:
       path: swap
       default: true
       content:
-        directory: .
+        directory: ./
         language: zh
