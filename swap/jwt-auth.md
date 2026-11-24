@@ -1,132 +1,82 @@
-# API 认证：JWT（RS256 / ES256）
+# 鉴权
 
-JSON-RPC 网关按 App 维度进行鉴权。启用 JWT 验证的 App，请求必须携带
-`Authorization: Bearer <JWT>`。
+UXUY DEX API 按 **App** 维度鉴权：每个请求都必须携带由业务方私钥签发的 JWT。
 
-- **请求地址**：`https://gwapi.ourdex.com/<chain>/YOUR-APP-ID`
-- **支持算法**：**RS256**（RSA）和 **ES256**（EC P-256）；其他算法均会被拒绝。
+- **请求地址**：`https://gwapi.ourdex.com/<chain>/<appId>`（测试环境地址由 BIPAL 团队提供）
+- **请求头**：`Authorization: Bearer <JWT>`
+- **签名算法**：`RS256`（RSA 2048+）或 `ES256`（EC P-256），其他算法一律拒绝
+
+本文以 App 已启用 JWT 校验为前提（正式接入默认启用）；App 未启用时仅凭 URL 中的 AppId 即可访问，是否启用由平台配置决定。
 
 ```
-┌──────────────┐   ①openssl 生成密钥对    ┌──────────────┐
-│  业务方(客户端) │ ──── 公钥注册 ────────▶ │  gdexUI Keys  │
-│              │                          │  (服务端存公钥) │
-│              │ ◀─── jwtId(=jti) ────── │              │
-│              │                          └──────────────┘
-│  ②私钥签发 JWT │  header 必带 jti（claims 可选）
-└──────┬───────┘
-       │ ③POST /<chain>/<appId>
-       │   Authorization: Bearer <JWT>
-       ▼
-   gdex 网关：按 header jti 查公钥 → 验签 → claims.Valid()（exp）
+业务方                               UXUY 平台
+  │  ① 生成密钥对（私钥不出本地）          │
+  │  ② 提交公钥 PEM ─────────────────▶  注册公钥，返回 jwtId
+  │  ③ 私钥本地签发 JWT                   │
+  │     header: {"alg":"RS256","jti":"<jwtId>"}
+  │  ④ POST /<chain>/<appId>  ─────────▶  按 jti 查公钥 → 验签 → 校验 exp
+  │     Authorization: Bearer <JWT>      │
 ```
 
-仓库内**没有**密钥对生成脚本。gdexUI 的 Keys 页只用于查询、粘贴注册和删除公钥（`cmd/gdexUI/web_app.go`）；密钥对需使用 OpenSSL 或任意 JWT 库生成。`cmd/gdexUI/dexio/client.go` 中内置的 `RSPrivateKey` 是 gdexUI 自身访问主服务的固定身份，**勿用于业务 App**。
+## 三个容易混淆的概念
 
-参考实现：
+| 名称 | 含义 | 出现位置 |
+|---|---|---|
+| **AppId** | App 的唯一标识 | 请求 URL 路径 `/<chain>/<appId>` |
+| **jwtId** | 某个公钥在该 App 下的唯一标识（注册公钥时由平台生成） | JWT 的 **header** 字段 `jti` |
+| **`jti`** | JWT 标准头字段，值必须等于 jwtId | JWT 第一段（base64 解码后的 JSON） |
 
-- **校验**：`plugins/uxuyio/app.go`（`AppValidator` / `doJwtValidator`）
-- **签发**：`cmd/gdexUI/dexio/client.go`（`setJwt`）
+> `jti` 必须放在 **JWT 自身的 header**（token 第一段）里，不是 HTTP header，也不是 claims。这是本平台的**非标准**做法：多数 JWT 库默认把 `jti` 写进 payload，直接签名会被拒绝（`jwtId nil`）。
 
-## 1. 生成密钥对（openssl）
+## 第 1 步：生成密钥对
+
+自行生成时（推荐，私钥不出本地）：
 
 ```bash
-# RS256 (RSA 2048)
+# RS256（RSA 2048）
 openssl genrsa -out rs256_key.pem 2048
 openssl rsa -in rs256_key.pem -pubout -out rs256_pub.pem
 
-# ES256 (EC prime256v1 / P-256)
+# ES256（EC prime256v1 / P-256）
 openssl ecparam -name prime256v1 -genkey -noout -out es256_key.pem
 openssl ec -in es256_key.pem -pubout -out es256_pub.pem
 ```
 
-- `*_key.pem` 是**私钥**，留在业务方侧用于签发 JWT，绝不外传
-- `*_pub.pem` 是公钥，用于下一步注册
-- PKCS#1（`BEGIN RSA PRIVATE KEY`）与 PKCS#8（`BEGIN PRIVATE KEY`）格式均可解析
+- `*_key.pem`：私钥，仅保存在业务方服务端，用于签发 JWT
+- `*_pub.pem`：公钥，提交给平台注册
+- PKCS#1（`BEGIN RSA PRIVATE KEY`）与 PKCS#8（`BEGIN PRIVATE KEY`）均可
 
-## 2. 注册公钥，拿到 jwtId
+## 第 2 步：注册公钥，获取 jwtId
 
-gdexUI → 对应 App → Keys 页粘贴公钥 PEM 注册（App 验证方式选 jwt，即 `JwtVerify=true`）。
+将公钥 PEM 全文提交给 BIPAL 团队，平台注册后返回 **jwtId**：
 
-注册时服务端从公钥派生唯一 ID（`plugins/uxuyio/app.go` `AddJwt`）：
+- 同一公钥重复注册会被拒绝（按公钥指纹去重）
+- **公钥注册在哪个 App 下，就只能配该 App 的 AppId 使用**；换 App 需重新注册
+- 删除公钥后，该 jwtId 将不再通过校验；App 配置有缓存，最长约 1 小时后完全生效
+
+如需自行核对 jwtId（或自动化注册前预检），计算方式为：
 
 ```
-jti = MD5( Base64Std( SHA256( X509.MarshalPKIXPublicKey(公钥) ) ) )
+jwtId = MD5( Base64Std( SHA256( DER(公钥) ) ) )   # 结果取 32 位小写 hex
 ```
-
-Keys 列表里展示的 **jwtId 就是签发 JWT 要用的 jti**，直接抄即可，无需自行计算。
-
-> **App Id ≠ jti，两者是完全不同的东西：**
->
-> - **App Id**：创建 APP 时自己指定的（App Center → Apps 列表 "App Id" 列），用在请求 URL `/<chainName>/<appId>` 里
-> - **jti**（= 该 APP → Keys 页 "Jwt Id" 列）：注册公钥时服务端按上式算出的，签发 JWT 时放进 **token header**
->
-> 把 App Id 当 jti 填进 JWT header，服务端在该 APP 的公钥表里查不到，直接 401（`jwt auth id should be empty`）。
-
-需要程序化计算 jti（自动化注册/自检场景）时，以下两种方式等价，均与服务端 `AddJwt` 逐字节一致：
-
-**Go**（与服务端同一套标准库调用）：
-
-```go
-// 用法: go run jti.go rs256_pub.pem
-package main
-
-import (
-	"crypto/md5"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/pem"
-	"fmt"
-	"os"
-)
-
-func main() {
-	pemBytes, err := os.ReadFile(os.Args[1])
-	if err != nil {
-		panic(err)
-	}
-	block, _ := pem.Decode(pemBytes)
-	if block == nil {
-		panic("not a PEM file")
-	}
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes) // openssl -pubout 输出即 PKIX(SPKI) 格式
-	if err != nil {
-		panic(err)
-	}
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		panic(err)
-	}
-	sum := sha256.Sum256(der)
-	fingerprint := base64.StdEncoding.EncodeToString(sum[:])
-	fmt.Printf("%x\n", md5.Sum([]byte(fingerprint))) // = Keys 页展示的 jwtId（jti）
-}
-```
-
-**openssl 一行流**（RS256/ES256 通用）：
 
 ```bash
+# 与平台逐字节一致；macOS 用 md5，Linux 用 md5sum
 openssl pkey -pubin -in rs256_pub.pem -outform DER \
-  | openssl dgst -sha256 -binary | base64 | tr -d '\n' | md5   # macOS；Linux 末段换成 md5sum
+  | openssl dgst -sha256 -binary | base64 | tr -d '\n' | md5
 ```
 
-注意 `tr -d '\n'` 不能省：`base64` 输出带尾部换行，而服务端是对**不含换行**的 base64 字符串做 MD5，带上换行算出的值必然对不上（RS256/ES256 双算法实测与 Go 版逐字节一致）。
+`tr -d '\n'` 不能省：`base64` 输出带尾部换行，而平台对**不含换行**的 base64 字符串求 MD5。通常直接用平台返回的 jwtId 即可，无需自己计算。
 
-注意：
+## 第 3 步：签发 JWT
 
-- 同一公钥重复注册会报 `publicKey existed`（按指纹去重）
-- **公钥注册在哪个 APP 下，就只能配那个 APP 的 appId 使用**：`JwtKeys` 按 App 维度存储，请求 URL 里的 appId 与注册时的 APP 不符 → 该 APP 的表里查不到此 jti → 401
-- 删除 Key 后该 jti 的所有 token 立即失效（查不到公钥即拒绝）
+### 三条硬性要求
 
-## 3. 签发 JWT
+1. **`jti` 放在 token header**，值为 jwtId，缺了会报 `jwtId nil`
+2. **务必自设 `exp`**：服务端对 `exp` 有则校验、无则放行，不带 `exp` 的 token 永不过期；建议有效期 5 分钟
+3. **算法只能是 `RS256` / `ES256`**
 
-### 必须遵守的三点
-
-1. **`jti` 必须放进 JWT 自身的 header；claims 里可带可不带（服务端不读 claims 里的 `jti`）**。注意这里的 header 指 **token 第一段**（base64 解码后的 JSON），**不是 HTTP header**——HTTP 层只需要 `Authorization: Bearer <token>` 一个头，`jti` 编码在 token 内部，抓包看不到。服务端从 `token.Header["jti"]` 查公钥（`doJwtValidator`），缺失直接报 `jwtId nil`。验证方法：把 token 按句号切开、base64 解码第一段，应看到 `{"alg":"RS256","jti":"...","typ":"JWT"}`。这是非标准做法——`pyjwt`/`jose` 等库默认只把 `jti` 写进 payload，直接签出来会被拒
-2. claims **建议**带 `exp`（有效期）——服务端（golang-jwt v4）对 `exp` 是**有则校验、无则放行**，不带 `exp` 的 token 永不过期，因此强烈建议自设分钟级有效期（参考实现默认 5 分钟）。服务端只做签名校验 + `claims.Valid()`（exp/nbf），`iss` 不做比对
-3. 算法只能是 `RS256` / `ES256`
-
-### Go 示例（`golang-jwt/jwt/v4`，与仓库同款）
+### Go（golang-jwt/jwt/v4）
 
 ```go
 package main
@@ -139,13 +89,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-// 用法: go run main.go <RS256|ES256> <私钥PEM路径> <jwtId> [issuer]
 func main() {
-	alg, keyPath, jwtID := os.Args[1], os.Args[2], os.Args[3]
-	issuer := "app"
-	if len(os.Args) > 4 {
-		issuer = os.Args[4]
-	}
+	alg, keyPath, jwtID := os.Args[1], os.Args[2], os.Args[3] // RS256|ES256, 私钥PEM, jwtId
 
 	pemBytes, err := os.ReadFile(keyPath)
 	if err != nil {
@@ -157,72 +102,102 @@ func main() {
 	switch alg {
 	case "RS256":
 		method = jwt.SigningMethodRS256
-		if key, err = jwt.ParseRSAPrivateKeyFromPEM(pemBytes); err != nil {
-			panic(err)
-		}
+		key, err = jwt.ParseRSAPrivateKeyFromPEM(pemBytes)
 	case "ES256":
 		method = jwt.SigningMethodES256
-		if key, err = jwt.ParseECPrivateKeyFromPEM(pemBytes); err != nil {
-			panic(err)
-		}
+		key, err = jwt.ParseECPrivateKeyFromPEM(pemBytes)
 	default:
 		panic("only RS256 and ES256 are supported")
 	}
-	token, err := newToken(method, jwtID, issuer, key)
+	if err != nil {
+		panic(err)
+	}
+
+	now := time.Now()
+	t := jwt.NewWithClaims(method, jwt.MapClaims{
+		"exp": now.Add(5 * time.Minute).Unix(),
+	})
+	t.Header["jti"] = jwtID // 关键：写在 header
+	token, err := t.SignedString(key)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(token)
 }
-
-func newToken(method jwt.SigningMethod, jwtID, issuer string, key interface{}) (string, error) {
-	now := time.Now()
-	t := jwt.NewWithClaims(method, jwt.MapClaims{
-		"jti": jwtID, // 可选：服务端不读 claims 里的 jti，带上无害
-		"iss": issuer,
-		"ts":  now.Unix(), // 参考实现带的字段，服务端不校验
-		"exp": now.Add(5 * time.Minute).Unix(),
-	})
-	t.Header["jti"] = jwtID // 关键：header 里也要有
-	return t.SignedString(key)
-}
 ```
 
-### 直接复用仓库客户端
+### Node.js（jsonwebtoken）
 
-Go 业务方可以直接用 `cmd/gdexUI/dexio` 包，每次请求自动签发并附带 Bearer 头：
+```js
+const fs = require('fs');
+const jwt = require('jsonwebtoken');
 
-```go
-client, err := dexio.NewClient(ctx, "https://gwapi.ourdex.com",
-	dexio.WithForceJwt(true),
-	dexio.WithJwtId(jwtID),
-	dexio.WithJwtIssuer("app"),
-	dexio.WithJwtPrivate(dexio.JWT_ALG_RS256, privateKeyPEM), // ES256 换 JWT_ALG_ES256
+const JWT_ID = 'your-jwt-id';
+const privateKey = fs.readFileSync('rs256_key.pem');
+
+const token = jwt.sign(
+  { exp: Math.floor(Date.now() / 1000) + 300 },
+  privateKey,
+  { algorithm: 'RS256', header: { jti: JWT_ID } }   // 关键：写在 header
+);
+```
+
+### Python（PyJWT 2.x）
+
+```python
+import time
+import jwt
+
+JWT_ID = "your-jwt-id"
+private_key = open("rs256_key.pem").read()
+
+token = jwt.encode(
+    {"exp": int(time.time()) + 300},
+    private_key,
+    algorithm="RS256",
+    headers={"jti": JWT_ID},   # 关键：写在 header
 )
 ```
 
-## 4. 发请求
+### 自检
 
-URL 仍是 `/<chainName>/<appId>`，token 放 header：
+把 token 按 `.` 切开，base64url 解码第一段，应看到 `jti`：
 
 ```bash
-TOKEN=$(go run main.go RS256 rs256_key.pem YOUR-JWT-ID myapp)
-
-curl -s -X POST 'https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID' \
-    -H "Authorization: Bearer $TOKEN" \
-    -H 'Content-Type: application/json' \
-    -d '{"jsonrpc":"2.0","id":1,"method":"dex_getCoin","params":["0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82"]}'
+echo "$TOKEN" | cut -d. -f1 | tr '_-' '/+' | base64 -d 2>/dev/null
+# {"alg":"RS256","jti":"<jwtId>","typ":"JWT"}
 ```
 
-token 过期后重新签发即可（私钥本地签，无需网络请求）；有效期建议与参考实现一致保持分钟级。
+## 第 4 步：调用接口
 
-## 5. 排错对照
+```bash
+curl -s -X POST 'https://gwapi.ourdex.com/bnbchain/<appId>' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"dex_version","params":[]}'
+```
 
-| 报错 | 原因 |
-| --- | --- |
-| `jwtId nil` | JWT header 里没有 `jti`（见上文第 3 节第 1 点） |
-| `jwt auth id should be empty` / 查无此 Key | header `jti` 与**该 APP** 注册的 jwtId 不一致；Key 已被删除；公钥注册在了别的 APP 下（URL 里 appId 用错）；服务端注册未落盘/重启丢失 |
-| `unexpected signing method` | alg 不是 RS256/ES256 |
-| `token is expired` / 401 | `exp` 过期，重新签发 |
-| `authentication method is not supported` | 带了 Basic Auth 或未带 Bearer（App 已开启 JwtVerify） |
-| `supports the algorithms RS256 and ES256` | 注册阶段公钥 PEM 格式/类型不对 |
+## 有效期与复用
+
+- 私钥本地签名，签发 JWT 不需要网络请求，性能开销极小
+- 建议有效期 5 分钟，并在过期前复用同一 token（按有效期缓存，提前 30–60 秒刷新）
+- 服务端校验证签，并对存在的时间类 claims（`exp` / `nbf` / `iat`）做有效性校验，不比对 `iss`；时钟偏差大时请校准 NTP
+
+## 安全要求
+
+- 私钥只在服务端使用；前端、移动端不得内置私钥（应由业务方服务端代签）
+- 公私钥文件不要提交到代码仓库；建议放密钥管理服务并定期轮换
+- 全部请求走 HTTPS；token 不要出现在 URL、日志或前端存储中
+- 公钥泄露不构成风险；私钥泄露时立即联系团队删除该 Key（App 配置缓存最长 1 小时，删除后请同时暂停使用旧私钥签发的令牌）
+
+## 常见错误
+
+| 返回 / 报错 | 原因 | 处理 |
+|---|---|---|
+| `jwtId nil` | JWT header 里没有 `jti` | 把 jwtId 写进 token header（不是 payload） |
+| `jwt auth id should be empty` / 401 | `jti` 与该 AppId 下注册的 jwtId 不一致；Key 已删除；公钥注册在别的 App 下 | 核对 AppId 与 jwtId 的配对关系 |
+| `unexpected signing method` | 算法不是 RS256 / ES256 | 改用 RS256 或 ES256 |
+| `Token is expired` | `exp` 已过期 | 重新签发 |
+| `authentication method is not supported` | 缺少 Bearer、用了 Basic Auth | 使用 `Authorization: Bearer <JWT>` |
+| `supports the algorithms RS256 and ES256` | 提交的公钥 PEM 既不是 RSA 也不是 EC 公钥（如误传证书、私钥或格式损坏） | 用 `openssl *_pub.pem` 的输出重新提交 |
+| `publicKey existed` | 同一公钥重复注册 | 直接使用已返回的 jwtId |

@@ -1,10 +1,10 @@
 $schema: https://api.gitbook.com/gitbook-docs.yaml
 site:
-  title: Swap API Docs
+  title: UXUY DEX API Docs
   structure:
     - type: space
       key: space-swap-api
-      title: Swap API
+      title: UXUY DEX API
       path: swap
       default: true
       content:
