@@ -27,7 +27,7 @@ dex_offlineQuote(withTx=true)
 | 请求地址 | `https://gwapi.ourdex.com/<chain>/<appId>` |
 | 鉴权 | `Authorization: Bearer <JWT>` |
 | Content-Type | `application/json` |
-| 适用链 | EVM 链（`bnbchain`、`ethereum`、`base`、`xlayer` 等） |
+| 适用链 | EVM 链（`bnbchain`、`ethereum`、`base`、`xlayer`、`anubis` 等） |
 
 ## 请求参数
 

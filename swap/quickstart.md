@@ -13,7 +13,7 @@
 
 | 需要提供 | 说明 |
 |---|---|
-| 接入链 | 如 `bnbchain`、`base`、`solana`，可多选 |
+| 接入链 | 如 `bnbchain`、`base`、`anubis`、`solana`，可多选 |
 | 业务场景 | 钱包 / 聚合器 / Bot / 其他，便于评估限额与费率 |
 | 预计量级 | 日请求数、单笔金额上限 |
 | 联系人 | 技术与商务联系人、紧急联系方式 |
@@ -149,7 +149,7 @@ Solana 无 approve 环节；输入代币的 ATA 创建、wrap/unwrap、平台费
 
 | 检查项 | 说明 |
 |---|---|
-| `chain` 路径 | 使用已开通的链名（当前为 `bnbchain` / `ethereum` / `base` / `xlayer` / `solana`） |
+| `chain` 路径 | 使用已开通的链名（当前为 `bnbchain` / `ethereum` / `base` / `xlayer` / `anubis` / `solana`） |
 | AppId 与 jwtId 配对 | 公钥注册在哪个 App 下，就只能用该 App 的 AppId |
 | `jti` 位置 | 在 JWT **header**（token 第一段）里，不在 payload 里 |
 | 金额单位 | EVM 人类可读字符串，Solana 最小单位整数字符串 |

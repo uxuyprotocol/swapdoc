@@ -17,9 +17,11 @@ UXUY DEX API 为钱包、交易聚合器、Bot 等业务方提供链上兑换（
 | `ethereum` | EVM | 1 | ✅ | ✅ calldata |
 | `base` | EVM | 8453 | ✅ | ✅ calldata |
 | `xlayer` | EVM | 196 | ✅ | ✅ calldata |
+| `anubis` | EVM | 6714 | ✅ | ✅ calldata |
 | `solana` | Solana | `chainIndex` = 501 | ✅ | ✅ 指令链 |
 
 - 链名大小写不敏感（`BNBChain` 与 `bnbchain` 等价）。
+- `anubis`（chainId 6714）为 EVM 兼容 L1，原生 gas 代币为 gasDAI（DAI 锚定）；接口中原生币仍以零地址表示。
 - EVM 的 chainId 用于请求参数 `chainIn` / `chainOut`。
 - Solana 请求如需显式传 `chainIndex`，填 `"501"`。
 - 其他 EVM 链可按需开通，联系 BIPAL 团队。
