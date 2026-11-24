@@ -1,6 +1,5 @@
 # Solana 离线询价 / 兑换指令接口对接文档
 
->
 | 接口 | 方法名 | 用途 |
 |---|---|---|
 | 询价 | `dex_offlineQuoteSol` | 纯报价：给定输入代币/数量，返回最优路由与预计产出（不构建指令） |
@@ -400,15 +399,13 @@ curl -s -X POST 'https://<服务地址>/solana/<apiKey>' \
 |---|---|---|
 | UxuySwap Contract | `contract` | uxuy-router 程序 id（base58）。Solana 链填 base58；EVM 链仍为 hex 地址 |
 | UxuySwap Authority PDA | `authority` | 签中间跳/费用的 authority PDA = PDA(`["uxuy_sa"]`, 程序id)。**仅 Solana 链显示**，与程序 id 成对校验（不匹配整对拒绝，原身份保持） |
+| Swap Intermediary Tokens → custodyAccount | 每行代币 | 该中间币的托管账户（SPL owner 须为 authority PDA） |
 
 Solana 链上这两行**共用一个保存按钮**（在 Authority PDA 行）整对提交：换合约就两个字段
 一起贴、一起存，后端先校验配对再落库，不存在"半新半旧"的中间态。清空两字段保存 = 回退
 编译内置默认身份。
-| Swap Intermediary Tokens → custodyAccount | 每行代币 | 该中间币的托管账户（SPL owner 须为 authority PDA） |
-
 两者都未配置（或都已清空）时使用编译内置的当前主网身份（`AN6zjJfT…` / `5rvVfdVC…`）。
-**更换合约
-（新程序 id）时**：改这两个字段即可切换引擎侧指向，但托管账户的 owner 绑定旧 PDA ——
+**更换合约（新程序 id）时**：改这两个字段即可切换引擎侧指向，但托管账户的 owner 绑定旧 PDA——
 需先用旧合约清空/关闭旧托管账户回收租金，再按新 authority 预热新托管账户并更新
 custodyAccount 配置。
 

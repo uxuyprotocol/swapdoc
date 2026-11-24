@@ -1,55 +1,45 @@
-# dex\_offlineQuote
+# EVM 链离线询价（`dex_offlineQuote`）
 
-EVM 链离线询价接口。
-- 询价优先：多路径并行本地计算，按可兑换数量排序返回
-- 守卫：最终路由集会对照学习到的参考币价做偏差体检，陈旧储备导致的虚高路由被拦下并回落在线报价
-- `withTx=true` 时附带 calldata 并做一次 eth_call 预执行
+`dex_offlineQuote` 用于获取 EVM 链上的代币兑换报价。
 
-配套批量接口：`dex_offlineQuotes`（一次请求询多对）。排查接口：`dex_debugRoute`（解释一对币为何无路由）。
+- **离线优先**：并行计算多条本地路由，并按可兑换数量排序返回。
+- **偏差守卫**：对最终路由集进行参考币价偏差检查；陈旧储备导致的虚高路由会被拦截，并回落到在线报价。
+- **交易预执行**：设置 `withTx=true` 时返回 calldata，并通过 `eth_call` 预执行。
 
-## **请求接口**
+相关接口：
 
-`POST https://gwapi.ourdex.com/<chain>/YOUR-APP-ID`
+- `dex_offlineQuotes`：批量查询多个交易对。
+- `dex_debugRoute`：排查单个交易对无路由的原因。
 
-### **METHOD**
+## 接口概览
 
-`Method: dex_offlineQuote`
+| 项目 | 值 |
+|---|---|
+| 请求方式 | `POST` |
+| 请求地址 | `https://gwapi.ourdex.com/<chain>/YOUR-APP-ID` |
+| JSON-RPC 方法 | `dex_offlineQuote` |
+| Content-Type | `application/json` |
 
-### **HEADERS**
+## 请求参数
 
-`Content-Type: application/json`
+| 参数 | 说明 |
+|---|---|
+| `sender` | 用户地址。 |
+| `receiver` | 收款用户地址。 |
+| `tokenIn` | 卖出代币地址。 |
+| `tokenOut` | 买入代币地址。 |
+| `amountIn` | 卖出代币数量，使用按 token 精度换算的人类可读十进制字符串（如 `"0.001"`）。与 `amountOut` 二选一。 |
+| `amountOut` | 买入代币数量。反向询价时，按目标产出反推所需输入，返回的 `amount` 为所需 `tokenIn` 数量；仅在 `withTx=false` 时支持。 |
+| `slippage` | 滑点，单位为百万分之一；可选，默认 `0`。离线接口不会自动抬高滑点：该值是硬上限，所需滑点超限的路由会被丢弃并回落在线报价。 |
+| `extraSlippage` | 额外滑点，可选；会加到 `slippage` 上。 |
+| `decimals` | `amountIn` / `amountOut` 的精度，可选；缺省时使用 token 精度。 |
+| `size` | 返回的路由数量上限，可选。 |
+| `orderId` | 业务方订单 ID，原样回传。 |
+| `withTx` | 是否构建 calldata 并预执行。`false`（默认）时返回 calldata 但不预执行，`executed` 恒为 `false`；`true` 时执行一次 `eth_call`，并回写 `executed` / `error`。 |
+| `noFee` | 是否免平台手续费。 |
+| `chainIn` / `chainOut` / `usdIn` / `usdOut` / `bridgeFee` / `bridgeRouter` / `bridgeAgent` / `fsReceiver` | 离线询价不支持跨链。`chainIn` / `chainOut` 传入与当前链不同的 chainId 会直接报错；其余跨链或分佣字段不生效。 |
 
-### **请求参数**
-
-`sender` - 用户 Address
-
-`receiver` - 收款用户 Address
-
-`tokenIn` - 卖出 Token Address
-
-`tokenOut` - 买入 Token Address
-
-`amountIn` - 卖出 Token Amount，十进制人类单位字符串（如 `"0.001"`），按 token 精度换算；`amountOut` 与 `amountIn` 二选一
-
-`amountOut` - 买入 Token Amount（反向询价：给定目标产出反推所需输入，返回的 `amount` 为所需 `tokenIn` 数量）。反向询价仅在 `withTx=false` 时支持
-
-`slippage` - 滑点，百万分之一，可不传（默认 0）。离线接口无自动滑点抬升：滑点是硬上限，路由偏差所需滑点超限时该路由被弃并回落在线
-
-`extraSlippage` - 额外滑点，非必需，会加到 `slippage` 上
-
-`decimals` - 指定 `amountIn`/`amountOut` 的精度，非必需；缺省按 token 精度
-
-`size` - 返回的路由数量上限，非必需
-
-`orderId` - 业务方订单ID，原样回传
-
-`withTx` - 是否构建 calldata 并预执行。`false`（默认）：返回 calldata 但不预执行，`executed` 恒为 `false`；`true`：做一次 eth_call 预执行，结果回写 `executed`/`error`
-
-`noFee` - 是否免平台手续费
-
-`chainIn`/`chainOut`/`usdIn`/`usdOut`/`bridgeFee`/`bridgeRouter`/`bridgeAgent`/`fsReceiver` - 离线询价不支持跨链：`chainIn`/`chainOut` 传与当前链不同的 chainId 会直接报错；其余跨链/分佣字段不生效
-
-### **请求示例**
+## 请求示例
 
 ```bash
 curl https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID \
@@ -58,72 +48,88 @@ curl https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID \
     -d '{"jsonrpc":"2.0","id":1,"method":"dex_offlineQuote","params":[{"sender":"0xDd841835e929FE458948aD31Ba43B6239c2912a0","receiver":"0xDd841835e929FE458948aD31Ba43B6239c2912a0","tokenIn":"0x55d398326f99059fF775485246999027B3197955","tokenOut":"0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82","amountIn":"1","slippage":50,"size":2}]}'
 ```
 
-## **接口响应**
+## 接口响应
 
 `result` 为路由数组，按可兑换 `amount` 降序；本地与在线均无路由时返回空数组 `[]`。
 
-### **响应参数**
+### 响应参数
 
-`id` - 询价路径ID
+| 字段 | 说明 |
+|---|---|
+| `id` | 询价路径 ID。 |
+| `paths` | 询价路径，按 `tokenIn` → 中间 token（可为空）→ `tokenOut` 排序。每项结构见下表。 |
+| `pairs` | 路径中的池信息，顺序与询价路径对应。每项结构见下表。 |
+| `dexList` | 路径中各跳的 DEX 信息，结构见下表。 |
+| `amount` | 最终可兑换的 `tokenOut` 数量，未除精度；反向询价时为所需 `tokenIn` 数量。 |
+| `minAmount` | 最终最小兑换数量，未除精度，由 `amount` 与生效滑点推导。 |
+| `slippage` | 生效滑点，单位为百万分之一。 |
+| `suggestSlippage` | 建议滑点，单位为百万分之一。当路由实际偏差超过生效滑点但仍可执行时，该值会大于 `slippage`，业务方可在执行前参考并放宽滑点。 |
+| `price` | 币价，按最终可兑换 `amount` / `amountIn` 计算；反向询价时取倒数口径。 |
+| `value` | 该笔交易对应的 USD 价值；仅在可定价时返回，可用于业务方限制。 |
+| `orderId` | 原样回传的业务方订单 ID。 |
+| `calldata` | 封装的 calldata，字段见下表。 |
 
-`paths` - 询价的路径，按 `tokenIn` - 中间路径 Token（可没有） - `tokenOut` 排序
+#### `paths[]`
 
-- `chainId` - chainId
-- `token` - Token Address
-- `name` - Token 名称
-- `symbol` - Token Symbol
-- `decimals` - Token 精度
+| 字段 | 说明 |
+|---|---|
+| `chainId` | 链 ID。 |
+| `token` | Token 合约地址。 |
+| `name` | Token 名称。 |
+| `symbol` | Token 符号。 |
+| `decimals` | Token 精度。 |
 
-`pairs` - 询价的池子，跟询价路径顺序匹配
+#### `pairs[]`
 
-- `chainId` - chainId
-- `pair` - 根据 `tokenIn` 和 `tokenOut` 拼接的标记 pool 的地址，业务可不处理
-- `tokenIn` - 该跳输入 Token 合约地址
-- `tokenOut` - 该跳输出 Token 合约地址
-- `pools` - pool 信息
-    - `pool` - pool 合约地址（uniswapv4 为 poolId）
-    - `factory` - pool 所在 factory 合约地址（uniswapv4 为 PoolManager）
-    - `router` - pool 对应的 router 合约地址
-    - `protocol` - factory 协议类型
-    - `amount` - 该跳可兑换的输出数量，未除精度
-    - `in` - 该跳输入数量，未除精度
-    - `price_impact` - 价格影响，百万分之一
-    - `slippage` - 预估滑点，百万分之一
-    - `reserve` - 该池快照数据（储备/价格/流动性等诊断字段），业务可不处理
+| 字段 | 说明 |
+|---|---|
+| `chainId` | 链 ID。 |
+| `pair` | 根据 `tokenIn` 和 `tokenOut` 拼接的 pool 标记地址，业务方可不处理。 |
+| `tokenIn` / `tokenOut` | 该跳输入 / 输出 Token 合约地址。 |
+| `pools` | 该跳的 pool 信息，字段见下表。 |
 
-`dexList` - dex 信息
+#### `pairs[].pools[]`
 
-- `chainId` - chainId
-- `tokenIn`/`tokenOut` - 该跳 Token 合约地址
-- `items` - dex 信息
-    - `name` - dex 名称
-    - `logo` - dex logo 地址
-    - `amountIn` - 输入数量，未除精度
-    - `amountOut` - 可兑换输出数量，未除精度
+| 字段 | 说明 |
+|---|---|
+| `pool` | Pool 合约地址；Uniswap v4 中为 poolId。 |
+| `factory` | Pool 所在的 factory 合约地址；Uniswap v4 中为 PoolManager。 |
+| `router` | Pool 对应的 router 合约地址。 |
+| `protocol` | Factory 协议类型。 |
+| `amount` | 该跳可兑换的输出数量，未除精度。 |
+| `in` | 该跳输入数量，未除精度。 |
+| `price_impact` | 价格影响，单位为百万分之一。 |
+| `slippage` | 预估滑点，单位为百万分之一。 |
+| `reserve` | Pool 快照数据（储备、价格、流动性等诊断字段），业务方可不处理。 |
 
-`amount` - 最终兑换的 `tokenOut` 数量，未除精度（反向询价时为所需 `tokenIn` 数量）
+#### `dexList[]`
 
-`minAmount` - 最终兑换的最小数量，未除精度（由 `amount` 与生效滑点推导）
+| 字段 | 说明 |
+|---|---|
+| `chainId` | 链 ID。 |
+| `tokenIn` / `tokenOut` | 该跳输入 / 输出 Token 合约地址。 |
+| `items` | DEX 信息列表，字段见下表。 |
 
-`slippage` - 生效滑点，百万分之一
+#### `dexList[].items[]`
 
-`suggestSlippage` - 建议滑点，百万分之一。路由实际偏差超过生效滑点但仍在可执行范围时，该值大于 `slippage`，业务方执行前可参考放宽
+| 字段 | 说明 |
+|---|---|
+| `name` | DEX 名称。 |
+| `logo` | DEX Logo 地址。 |
+| `amountIn` | 输入数量，未除精度。 |
+| `amountOut` | 可兑换输出数量，未除精度。 |
 
-`price` - 币价，最终可兑换 `amount`/`amountIn`（反向询价时取倒数口径）
+#### `calldata`
 
-`value` - 该笔交易对应的 USD 价值（仅能定价时返回），用于业务方做限制
+| 字段 | 说明 |
+|---|---|
+| `to` | 执行合约地址。 |
+| `value` | 当 `tokenIn` 为原生币时的输入数量，未除精度。 |
+| `data` | Calldata 数据。 |
+| `executed` | 预执行结果。`withTx=false` 时恒为 `false`；`withTx=true` 时，`false` 表示预执行失败，`true` 表示成功。 |
+| `error` | 预执行失败时的错误信息。 |
 
-`orderId` - 回传业务方订单ID
-
-`calldata` - 封装的 calldata 数据
-
-- `to` - 执行合约地址
-- `value` - 当 `tokenIn` 为原生币时，输入的 amount（未除精度）
-- `data` - calldata 数据
-- `executed` - 预执行结果。`withTx=false` 时恒为 `false`；`withTx=true` 时 `false` 为预执行失败、`true` 为预执行成功
-- `error` - 预执行失败时的报错信息
-
-### **响应 Body 示例**
+### 响应示例
 
 ```json
 {
@@ -252,11 +258,11 @@ curl https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID \
 }
 ```
 
-# dex\_offlineQuotes
+## 批量离线询价（`dex_offlineQuotes`）
 
 批量离线询价。与 `dex_offlineQuote` 相同的询价与守卫语义，一次请求询多对 token；每对独立回落在线报价，单对失败不影响其他对。
 
-## **请求示例**
+### 请求示例
 
 ```bash
 curl https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID \
@@ -267,17 +273,17 @@ curl https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID \
 
 `params` 为 `dex_offlineQuote` 参数对象的数组。
 
-### **响应参数**
+### 响应参数
 
-`result` 为数组，顺序与请求一致，每项：
+`result` 为数组，顺序与请求一致。每项字段如下：
 
-`tokenIn`/`tokenOut` - 该对的 Token Address
+| 字段 | 说明 |
+|---|---|
+| `tokenIn` / `tokenOut` | 该交易对的 Token 地址。 |
+| `routers` | 路由数组，结构与 `dex_offlineQuote` 的 `result` 相同；无路由时省略。 |
+| `error` | 该交易对失败时的错误信息；成功时省略。 |
 
-`routers` - 路由数组，结构同 `dex_offlineQuote` 的 `result`；无路由时省略
-
-`error` - 该对失败时的报错信息，成功时省略
-
-### **响应 Body 示例**
+### 响应示例
 
 ```json
 {
@@ -322,7 +328,7 @@ curl https://gwapi.ourdex.com/bnbchain/YOUR-APP-ID \
 }
 ```
 
-## **行为说明**
+### 行为说明
 
 - **离线优先**：报价数据全部来自本地（池储备、tick、bin 快照），不消耗链上 RPC；本地无路由或快照不足时回落在线 Quoter 询价。
 - **守卫回落**：最终路由集对照价格学习通道的参考币价做偏差体检；陈旧储备造成的虚高路由被弃、回落在线报价，业务方无感知（结果仍可用，只是来源为链上状态）。

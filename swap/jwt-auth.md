@@ -1,6 +1,10 @@
 # API 认证：JWT（RS256 / ES256）
 
-JSON-RPC 网关按 App 维度鉴权。URL 形如 `https://gwapi.ourdex.com/<chain>/YOUR-APP-ID`；App 开启 JWT 验证后，每个请求还须携带 `Authorization: Bearer <JWT>` 头，签名算法支持 **RS256**（RSA）与 **ES256**（EC P-256），其他算法一律拒绝。
+JSON-RPC 网关按 App 维度进行鉴权。启用 JWT 验证的 App，请求必须携带
+`Authorization: Bearer <JWT>`。
+
+- **请求地址**：`https://gwapi.ourdex.com/<chain>/YOUR-APP-ID`
+- **支持算法**：**RS256**（RSA）和 **ES256**（EC P-256）；其他算法均会被拒绝。
 
 ```
 ┌──────────────┐   ①openssl 生成密钥对    ┌──────────────┐
@@ -16,9 +20,12 @@ JSON-RPC 网关按 App 维度鉴权。URL 形如 `https://gwapi.ourdex.com/<chai
    gdex 网关：按 header jti 查公钥 → 验签 → claims.Valid()（exp）
 ```
 
-仓库内**没有**密钥对生成脚本：gdexUI 的 Keys 页只做公钥的查询/粘贴注册/删除（`cmd/gdexUI/web_app.go`），密钥对生成交给 openssl 或任意 JWT 库；`cmd/gdexUI/dexio/client.go` 中内置的 `RSPrivateKey` 是 gdexUI 自身访问主服务的固定身份，勿用于业务 App。
+仓库内**没有**密钥对生成脚本。gdexUI 的 Keys 页只用于查询、粘贴注册和删除公钥（`cmd/gdexUI/web_app.go`）；密钥对需使用 OpenSSL 或任意 JWT 库生成。`cmd/gdexUI/dexio/client.go` 中内置的 `RSPrivateKey` 是 gdexUI 自身访问主服务的固定身份，**勿用于业务 App**。
 
-校验逻辑参考实现：`plugins/uxuyio/app.go`（`AppValidator` / `doJwtValidator`）；签发参考实现：`cmd/gdexUI/dexio/client.go`（`setJwt`）。
+参考实现：
+
+- **校验**：`plugins/uxuyio/app.go`（`AppValidator` / `doJwtValidator`）
+- **签发**：`cmd/gdexUI/dexio/client.go`（`setJwt`）
 
 ## 1. 生成密钥对（openssl）
 
@@ -111,7 +118,7 @@ openssl pkey -pubin -in rs256_pub.pem -outform DER \
 - **公钥注册在哪个 APP 下，就只能配那个 APP 的 appId 使用**：`JwtKeys` 按 App 维度存储，请求 URL 里的 appId 与注册时的 APP 不符 → 该 APP 的表里查不到此 jti → 401
 - 删除 Key 后该 jti 的所有 token 立即失效（查不到公钥即拒绝）
 
-## 3. 签发 request token
+## 3. 签发 JWT
 
 ### 必须遵守的三点
 
@@ -188,7 +195,7 @@ Go 业务方可以直接用 `cmd/gdexUI/dexio` 包，每次请求自动签发并
 ```go
 client, err := dexio.NewClient(ctx, "https://gwapi.ourdex.com",
 	dexio.WithForceJwt(true),
-   dexio.WithJwtId(jwtID),
+	dexio.WithJwtId(jwtID),
 	dexio.WithJwtIssuer("app"),
 	dexio.WithJwtPrivate(dexio.JWT_ALG_RS256, privateKeyPEM), // ES256 换 JWT_ALG_ES256
 )
